@@ -7,7 +7,15 @@
 
     <div class="py-6 px-6">
         <div class="bg-white p-6 rounded shadow">
-
+            @if ($errors->any())
+                <div class="bg-red-100 p-3 mb-3 rounded">
+                    <ul>
+                        @foreach ($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
             <form action="{{ route('categories.update', $category->id) }}" method="POST">
                 @csrf
                 @method('PUT')

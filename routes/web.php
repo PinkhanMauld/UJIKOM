@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\ItemController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Operator\ItemController as OperatorItemController;
 use App\Http\Controllers\Operator\UserController as OperatorUserController;
 use App\Http\Controllers\Operator\LendingController;
@@ -13,9 +14,9 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+Route::get('/dashboard', [DashboardController::class, 'index'])
+    ->middleware(['auth', 'verified'])
+    ->name('dashboard');
 
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -47,6 +48,8 @@ Route::middleware('auth', 'role:operator')->prefix('operator')->group(function (
     Route::get('items', [OperatorItemController::class, 'index'])->name('operator.items.index');
     Route::get('users', [OperatorUserController::class, 'edit'])->name('operator.users.edit');
     Route::put('users', [OperatorUserController::class, 'update'])->name('operator.users.update');
+    Route::get('/{lending}/return', [LendingController::class, 'returnForm'])->name('lendings.return.form');
+    Route::post('/{lending}/return', [LendingController::class, 'processReturn'])->name('lendings.return.process');
     Route::get('lendings-export', [LendingController::class, 'export'])->name('lendings.export');
 });
 require __DIR__.'/auth.php';

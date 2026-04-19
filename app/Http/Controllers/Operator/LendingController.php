@@ -11,23 +11,25 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Maatwebsite\Excel\Facades\Excel;
+
+use function Symfony\Component\Clock\now;
 
 class LendingController extends Controller
 {
    public function index(Request $request)
-{
-    $query = Lending::query();
+    {
+        $query = Lending::with(['details.item', 'editor']);
 
-    if ($request->date) {
-        $query->whereDate('date', $request->date);
+        if ($request->filled('date')) {
+            $query->whereDate('date', $request->date);
+        }
+
+        $lendings = $query->latest()->get();
+
+        return view('operator.lendings.index', compact('lendings'));
     }
-
-    $lendings = $query->latest()->get();
-
-    return view('operator.lendings.index', compact('lendings'));
-}
-
     public function lendings($id)
     {
         $item = Item::findOrFail($id);
@@ -83,7 +85,6 @@ class LendingController extends Controller
                 return back()->with('error', 'Item tidak ditemukan');
             }
 
-            // REAL STOCK = total - lending aktif - repair
             $realStock =
                 $barang->total
                 - $barang->lendingDetails()
@@ -118,14 +119,63 @@ class LendingController extends Controller
             ->with('success', 'Lending berhasil!');
     }
 
-    public function return(Lending $lending)
+     public function returnForm(Lending $lending)
     {
-        $lending->update([
-            'return_date' => Carbon::now()
+        $lending->load('details.item');
+
+        return view('operator.lendings.return', compact('lending'));
+    }
+
+    public function processReturn(Request $request, Lending $lending)
+    {
+        $request->validate([
+            'good_total' => 'required|array',
+            'damaged_total' => 'required|array',
         ]);
 
-        // ❗ tidak ada update stok lagi (FIX SYSTEM)
-        return back()->with('success', 'Items returned');
+        DB::transaction(function () use ($request, $lending) {
+
+            foreach ($lending->details as $detail) {
+
+                $good = (int) ($request->good_total[$detail->id] ?? 0);
+                $bad  = (int) ($request->damaged_total[$detail->id] ?? 0);
+
+                // VALIDASI TOTAL
+                if ($good + $bad != $detail->total) {
+                throw ValidationException::withMessages([
+                    'error' => 'Total good + rusak harus sama untuk item: ' . $detail->item->name
+                ]);
+            }
+
+
+                $detail->update([
+                    'good_total' => $good,
+                    'damaged_total' => $bad,
+                ]);
+
+                $item = Item::find($detail->item_id);
+
+                // GOOD → balik ke stock
+                if ($good > 0) {
+                    $item->increment('total', $good);
+                }
+
+                // DAMAGED → masuk repair
+                if ($bad > 0) {
+                    $item->repairs()->create([
+                        'total' => $bad,
+                        'date' => now(),
+                    ]);
+                }
+            }
+
+            $lending->update([
+                'return_date' => now()
+            ]);
+        });
+
+        return redirect()->route('lendings.index')
+            ->with('success', 'Return berhasil diproses');
     }
 
     public function destroy(Lending $lending)
@@ -140,10 +190,10 @@ class LendingController extends Controller
     }
 
     public function export(Request $request)
-{
-    return Excel::download(
-        new LendingsExport($request->date),
-        'lendings.xlsx'
-    );
-}
+    {
+        return Excel::download(
+            new LendingsExport($request),
+            'lendings.xlsx'
+        );
+    }
 }
